@@ -1,1 +1,6 @@
 /target
+
+# for SQLite
+*.sl3
+*.sl3-shm
+*.sl3-wal

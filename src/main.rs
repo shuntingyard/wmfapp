@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use sqlx::{migrate::MigrateDatabase, Sqlite, SqlitePool};
 use tokio::time;
 use twitter_v2::{authorization::Oauth1aToken, query::UserField, TwitterApi};
 
@@ -13,12 +14,13 @@ struct Oauth1Fields {
 async fn do_work_interval(
     auth: Oauth1aToken,
     pagination_token: &Option<String>,
+    pool: &SqlitePool,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
     // We can't get away [400 Bad Request] with null length &str as next_token so:
 
     // 1) let's prepare common query parms.
     let field_array = [UserField::Id, UserField::Username];
-    let max = 30;
+    let max = 200;
 
     // 2)   code separate queries, depending on presence of pagination token
     //      for lookin' up followers in user's context.
@@ -70,19 +72,46 @@ async fn do_work_interval(
 
     // 0 follies will be `None` and not enter here.
     if let Some(my_followers) = my_followers {
-        let subtot = my_followers.len();
+        // for statistics
+        let fetches = my_followers.len();
+        let mut inserts = 0;
+        let mut updates = 0;
+
         for follower in my_followers {
-            println!(
-                "{:<32} https://twitter.com/i/user/{}",
-                follower.username,
-                follower.id.as_u64()
-            );
+            // persistence (SQLite)
+            let id_string = follower.id.as_u64().to_string();
+
+            let is_new = sqlx::query("SELECT id FROM follower WHERE id == $1")
+                .bind(&id_string)
+                .fetch_optional(pool) // at most one
+                .await?
+                .is_none();
+
+            if is_new {
+                sqlx::query(
+                    "INSERT INTO follower (id, first_seen, last_seen) values ($1, datetime('now'), datetime('now'))"
+                )
+                .bind(&id_string)
+                .execute(pool)
+                .await?;
+                inserts += 1;
+            } else {
+                sqlx::query("UPDATE follower SET last_seen = datetime('now') WHERE id == $1")
+                    .bind(&id_string)
+                    .bind(follower.id.as_u64().to_string())
+                    .execute(pool)
+                    .await?;
+                updates += 1;
+            }
         }
-        println!(" --total: {subtot}\n");
+
+        println!(" --api fetches: {fetches}, db inserts: {inserts}, db updates: {updates}");
     };
 
     Ok(next_token)
 }
+
+const DB_URL: &str = "sqlite://db.sl3";
 
 #[tokio::main]
 async fn main() {
@@ -98,13 +127,31 @@ async fn main() {
         creds.secret,
     );
 
-    // Start doing the work.
+    // Prepare persistence layer.
+    if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
+        println!("Creating database {}", DB_URL);
+        match Sqlite::create_database(DB_URL).await {
+            Ok(_) => println!("Create db success"),
+            Err(error) => panic!("error: {}", error),
+        }
+    } else {
+        println!("Database already exists");
+    }
+    let pool = SqlitePool::connect(DB_URL)
+        .await
+        .expect("DB failed creating connection pool");
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("DB failed running migrate");
+
+    // Start doing work.
     let mut interval = time::interval(time::Duration::from_secs(30));
     let mut next: Option<String> = None; // next_token
 
     loop {
         interval.tick().await;
-        let result = do_work_interval(auth.clone(), &next).await;
+        let result = do_work_interval(auth.clone(), &next, &pool).await;
         //
         // All errors treated here...
         if let Err(e) = result {
