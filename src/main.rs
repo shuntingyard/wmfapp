@@ -20,7 +20,7 @@ async fn do_work_interval(
 
     // 1) let's prepare common query parms.
     let field_array = [UserField::Id, UserField::Username];
-    let max = 200;
+    let max = 1000;
 
     // 2)   code separate queries, depending on presence of pagination token
     //      for lookin' up followers in user's context.
@@ -53,7 +53,7 @@ async fn do_work_interval(
         ;
     }
 
-    // Destructure metadata and get next_token.
+    // Destructure API metadata and get next_token.
     let next_token: Option<String>;
     if let Some(meta) = &api_response.meta {
         next_token = match &meta.next_token {
@@ -72,6 +72,15 @@ async fn do_work_interval(
 
     // 0 follies will be `None` and not enter here.
     if let Some(my_followers) = my_followers {
+        //
+        // Write persistence meta entry when we start updating.
+        if let Some(_) = pagination_token {
+        } else {
+            sqlx::query("UPDATE meta SET curr_start = DATETIME('now')")
+                .execute(pool)
+                .await?;
+        }
+
         // for statistics
         let fetches = my_followers.len();
         let mut inserts = 0;
@@ -81,31 +90,62 @@ async fn do_work_interval(
             // persistence (SQLite)
             let id_string = follower.id.as_u64().to_string();
 
-            let is_new = sqlx::query("SELECT id FROM follower WHERE id == $1")
-                .bind(&id_string)
-                .fetch_optional(pool) // at most one
-                .await?
-                .is_none();
+            let is_new = sqlx::query(
+                "
+                SELECT id FROM follow
+                WHERE id == $1
+                AND last_seen >= (SELECT last_start FROM meta)
+                ",
+            )
+            .bind(&id_string)
+            .fetch_optional(pool) // at most one
+            .await?
+            .is_none();
 
             if is_new {
                 sqlx::query(
-                    "INSERT INTO follower (id, first_seen, last_seen) values ($1, datetime('now'), datetime('now'))"
+                    "INSERT INTO follow (id, first_seen, last_seen)
+                    VALUES ($1, DATETIME('now'), DATETIME('now'))
+                    ",
                 )
                 .bind(&id_string)
                 .execute(pool)
                 .await?;
                 inserts += 1;
             } else {
-                sqlx::query("UPDATE follower SET last_seen = datetime('now') WHERE id == $1")
-                    .bind(&id_string)
-                    .bind(follower.id.as_u64().to_string())
-                    .execute(pool)
-                    .await?;
+                sqlx::query(
+                    "
+                    UPDATE follow SET last_seen = DATETIME('now')
+                    WHERE id == $1
+                    AND last_seen >= (SELECT last_start FROM meta)
+                    ",
+                )
+                .bind(&id_string)
+                .bind(follower.id.as_u64().to_string())
+                .execute(pool)
+                .await?;
                 updates += 1;
             }
         }
 
         println!(" --api fetches: {fetches}, db inserts: {inserts}, db updates: {updates}");
+
+        // Write persistence meta entry when we're done updating.
+        if let Some(_) = &next_token {
+        } else {
+            sqlx::query(
+                "
+                UPDATE meta SET last_start = (
+                    SELECT curr_start FROM meta
+                );
+                UPDATE meta SET curr_start = NULL;
+                UPDATE meta SET last_end = DATETIME('now');
+                UPDATE meta SET initial_end = DATETIME('now') WHERE initial_end is NULL
+                ",
+            )
+            .execute(pool)
+            .await?;
+        }
     };
 
     Ok(next_token)
@@ -127,16 +167,34 @@ async fn main() {
         creds.secret,
     );
 
+    // Retrieve Twitter user id for checks.
+    let data = TwitterApi::new(auth.clone())
+        .get_users_me()
+        .send()
+        .await
+        .expect("Couldn't verify Oauth1a creds")
+        .into_data();
+
+    let my_id;
+
+    if let Some(user) = data {
+        println!("Starting for @{1} ({0})", user.id, user.username);
+        my_id = user.id.as_u64().to_string();
+    } else {
+        panic!("Serious #Twitterfail, can't continue...");
+    }
+
     // Prepare persistence layer.
-    if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
+    let db_existed = Sqlite::database_exists(DB_URL).await.unwrap_or(false);
+
+    if !db_existed {
         println!("Creating database {}", DB_URL);
         match Sqlite::create_database(DB_URL).await {
             Ok(_) => println!("Create db success"),
             Err(error) => panic!("error: {}", error),
         }
-    } else {
-        println!("Database already exists");
     }
+
     let pool = SqlitePool::connect(DB_URL)
         .await
         .expect("DB failed creating connection pool");
@@ -145,8 +203,26 @@ async fn main() {
         .await
         .expect("DB failed running migrate");
 
+    if !db_existed {
+        // Ownership nitialization is required.
+        sqlx::query("INSERT INTO meta (owner) VALUES ($1)")
+            .bind(my_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    } else {
+        // Owwnership check is required.
+        sqlx::query("SELECT owner FROM meta WHERE owner == $1")
+            .bind(&my_id)
+            .fetch_one(&pool)
+            .await
+            .expect(&format!(
+                "Owner of persistence store != {my_id}, can't continue..."
+            ));
+    }
+
     // Start doing work.
-    let mut interval = time::interval(time::Duration::from_secs(30));
+    let mut interval = time::interval(time::Duration::from_secs(60));
     let mut next: Option<String> = None; // next_token
 
     loop {
