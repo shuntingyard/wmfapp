@@ -1,16 +1,18 @@
 SELECT
   'New follows, starting at '
   ||
-  (SELECT DATETIME(initial_end, 'localtime') FROM meta);
+  (SELECT DATE(initial_end, 'localtime') FROM meta);
 
 SELECT
-  'since '
+  '         from '
   ||
   DATETIME(first_seen, 'localtime')
   ||
-  ' https://twitter.com/i/user/'
+  '   https://twitter.com/i/user/'
   ||
-  id
+  FORMAT('%-23s', id),
+  last_name_seen,
+  last_handle_seen
 FROM
   follow
 WHERE
