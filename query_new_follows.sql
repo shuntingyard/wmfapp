@@ -1,12 +1,12 @@
 SELECT
-  'New follows since '
+  'New follows, starting at '
   ||
-  (SELECT initial_end FROM meta)
-  ||
-  ' UTC:';
+  (SELECT DATETIME(initial_end, 'localtime') FROM meta);
 
 SELECT
-  first_seen
+  'since '
+  ||
+  DATETIME(first_seen, 'localtime')
   ||
   ' https://twitter.com/i/user/'
   ||

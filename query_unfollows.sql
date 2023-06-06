@@ -1,16 +1,14 @@
 SELECT
-  'Unfollows since '
+  'Unfollows, starting at '
   ||
-  (SELECT initial_end FROM meta)
-  ||
-  ' UTC:';
+  (SELECT DATETIME(initial_end, 'localtime') FROM meta);
 
 SELECT
-  DATE(first_seen)
+  DATE(first_seen, 'localtime')
   ||
   ' to '
   ||
-  last_seen
+  DATETIME(last_seen, 'localtime')
   ||
   ' https://twitter.com/i/user/'
   ||

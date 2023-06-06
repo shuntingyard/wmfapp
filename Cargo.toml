@@ -9,5 +9,7 @@ edition = "2021"
 serde = "1.0.162"
 serde_json = "1.0.96"
 sqlx = { version = "0.6.3", features = ["runtime-tokio-rustls", "sqlite"] }
-tokio = { version = "1.28.0", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1.28.1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio-trace = { version = "0.1.0", features = ["max_level_trace", "release_max_level_debug"] }
+tokio-util = "0.7.8"
 twitter-v2 = { version = "0.1.8", features = ["arbitrary_precision", "rustls-tls"] }
