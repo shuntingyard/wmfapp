@@ -1,13 +1,12 @@
 use serde::Deserialize;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite, SqlitePool};
-use tokio::{
-    select,
-    signal::{
-        self,
-        unix::{signal, SignalKind},
-    },
-    time,
+use tokio::signal;
+#[cfg(target_family = "unix")]
+use tokio::signal::{
+    self,
+    unix::{signal, SignalKind},
 };
+use tokio::{select, time};
 use tokio_trace::{debug, info, warn};
 use tokio_util::sync::CancellationToken;
 use twitter_v2::{authorization::Oauth1aToken, query::UserField, TwitterApi};
@@ -197,10 +196,9 @@ const DB_URL: &str = "sqlite://db.sl3";
 #[tokio::main]
 async fn main() {
     // Get authorization:
-    let creds = serde_json::from_str::<Oauth1Fields>(include_str!(
-        "../credentials/Oauth1WmfLeft.json"
-    ))
-    .expect("Oauth1 token d3s3r1al1Ze tr0ubl3");
+    let creds =
+        serde_json::from_str::<Oauth1Fields>(include_str!("../credentials/Oauth1WmfLeft.json"))
+            .expect("Oauth1 token d3s3r1al1Ze tr0ubl3");
 
     let auth = Oauth1aToken::new(
         creds.consumer_key,
@@ -273,11 +271,27 @@ async fn main() {
     // Prepare tasks.
     let loops_token = CancellationToken::new();
     let loop_forever1 = loops_token.clone();
+
+    #[cfg(target_family = "unix")]
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    #[cfg(target_family = "unix")]
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
     let forever1 = tokio::spawn(async move {
         loop {
+            #[cfg(target_family = "windows")]
+            select! {
+                    _ = loop_forever1.cancelled() => {
+                        // Cleanup work at end is done here.
+                        //
+                        // TODO: but what if we have several loops?
+                        pool.close().await;
+                        info!("SIGINT... closed DB");
+                        break;
+                    }
+                     _ = interval.tick() => do_work(auth.clone(), &pool, &mut next).await,
+            }
+            #[cfg(target_family = "unix")]
             select! {
                     _ = loop_forever1.cancelled() => {
                         // Cleanup work at end is done here.
@@ -297,69 +311,69 @@ async fn main() {
                         info!("SIGHUP... closed DB");
                         break;
                     }
-                     _ = interval.tick() => {
-
-                    let result = do_work_interval(auth.clone(), &next, &pool).await;
-                    //
-                    // All errors treated here...
-                    if let Err(e) = result {
-                        /*
-                            TODO: so far (stupidly) we don't know how to match here!
-
-                            awful!!!    Api(ApiError {
-                                            title: "Unauthorized",
-                                            kind: "about:blank",
-                                            status: 401,
-                                            detail: "Unauthorized", errors: []
-                                        })
-
-                                        ERROR: [403 Forbidden]
-                                            When authenticating requests to the Twitter API v2 endpoints,
-                                            you must use keys and tokens from a Twitter developer App that is attached to a Project.
-                                            You can create a project via the developer portal.
-
-                            benign :)   Request(reqwest::Error {
-                                            kind: Request, url: Url {
-                                                scheme: "https",
-                                                cannot_be_a_base: false,
-                                                username: "",
-                                                password: None,
-                                                host: Some(Domain("api.twitter.com")),
-                                                port: None, path: "/2/users/me",
-                                                query: None,
-                                                fragment: None
-                                            },
-                                            source: hyper::Error(Connect, ConnectError("tcp connect error", Os {
-                                                code: 101,
-                                                kind: NetworkUnreachable,
-                                                message: "Network is unreachable"
-                                            }))
-                                        })
-
-                                        Api(ApiError {
-                                            title: "Too Many Requests",
-                                            kind: "about:blank",
-                                            status: 429,
-                                            detail: "Too Many Requests", errors: []
-                                        })
-
-                            Possible solution using the `thiserror` crate with '?-operator' and `tokio`?
-                        */
-                        warn!("ERROR: {e}");
-                        eprintln!("ERROR: {e:?}");
-                    } else {
-                        //
-                        // Manage next_token, be it empty or not.
-                        next = match result {
-                            Ok(t) => t,
-                            Err(_) => None,
-                        };
-                    }
-                }
+                     _ = interval.tick() => do_work(auth.clone(), &pool, &mut next).await,
             }
         }
     });
 
+    async fn do_work(auth: Oauth1aToken, pool: &SqlitePool, next: &mut Option<String>) {
+        let result = do_work_interval(auth, next, pool).await;
+        //
+        // All errors treated here...
+        if let Err(e) = result {
+            /*
+                TODO: so far (stupidly) we don't know how to match here!
+
+                awful!!!    Api(ApiError {
+                                title: "Unauthorized",
+                                kind: "about:blank",
+                                status: 401,
+                                detail: "Unauthorized", errors: []
+                            })
+
+                            ERROR: [403 Forbidden]
+                                When authenticating requests to the Twitter API v2 endpoints,
+                                you must use keys and tokens from a Twitter developer App that is attached to a Project.
+                                You can create a project via the developer portal.
+
+                benign :)   Request(reqwest::Error {
+                                kind: Request, url: Url {
+                                    scheme: "https",
+                                    cannot_be_a_base: false,
+                                    username: "",
+                                    password: None,
+                                    host: Some(Domain("api.twitter.com")),
+                                    port: None, path: "/2/users/me",
+                                    query: None,
+                                    fragment: None
+                                },
+                                source: hyper::Error(Connect, ConnectError("tcp connect error", Os {
+                                    code: 101,
+                                    kind: NetworkUnreachable,
+                                    message: "Network is unreachable"
+                                }))
+                            })
+
+                            Api(ApiError {
+                                title: "Too Many Requests",
+                                kind: "about:blank",
+                                status: 429,
+                                detail: "Too Many Requests", errors: []
+                            })
+
+                Possible solution using the `thiserror` crate with '?-operator' and `tokio`?
+            */
+            warn!("ERROR: {e}");
+            eprintln!("ERROR: {e:?}");
+        } else {
+            //
+            // Manage next_token, be it empty or not.
+            *next = match result {
+                Ok(t) => t,
+                Err(_) => None,
+            };
+        }
+    }
     // Install this handler in the background.
     tokio::spawn(async move {
         signal::ctrl_c()
