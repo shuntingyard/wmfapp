@@ -5,3 +5,6 @@
 *.sl3
 *.sl3-shm
 *.sl3-wal
+
+# Python virtual environments
+venv

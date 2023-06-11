@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite, SqlitePool};
+#[cfg(target_family = "windows")]
 use tokio::signal;
 #[cfg(target_family = "unix")]
 use tokio::signal::{
@@ -26,7 +27,7 @@ async fn do_work_interval(
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
     // We can't get away [400 Bad Request] with null length &str as next_token so:
 
-    // 1) let'100repare common query parms.
+    // 1) let's prepare common query parameters.
     let field_array = [
         UserField::Id,
         UserField::Username,
@@ -41,7 +42,7 @@ async fn do_work_interval(
     let max = 1000;
 
     // 2)   code separate queries, depending on presence of pagination token
-    //      for lookin' up followers in user's context.
+    //      for looking up followers in user's context.
     let api_response;
 
     if let Some(next_token) = pagination_token {
@@ -71,7 +72,7 @@ async fn do_work_interval(
         ;
     }
 
-    // Destructure API metadata and get next_token.
+    // De-structure API metadata and get next_token.
     let next_token: Option<String>;
     if let Some(meta) = &api_response.meta {
         next_token = meta.next_token.as_ref().map(String::from);
@@ -89,7 +90,7 @@ async fn do_work_interval(
 
     let my_followers = api_response.into_data();
 
-    // 0 follies will be `None` and not enter here.
+    // Zero followers will be `None`, so we don't even enter here.
     if let Some(my_followers) = my_followers {
         //
         // Write persistence meta entry when we start updating.
@@ -159,7 +160,6 @@ async fn do_work_interval(
                     ",
                 )
                 .bind(&id_string)
-                //.bind(follower.id.as_u64().to_string()) <- Qu'est-ce que c'est?
                 .bind(&user_handle)
                 .bind(&user_name)
                 .execute(pool)
@@ -247,14 +247,14 @@ async fn main() {
         .expect("DB failed running migrate");
 
     if !db_existed {
-        // Ownership nitialization is required.
+        // Ownership initialization is required.
         sqlx::query("INSERT INTO meta (owner) VALUES ($1)")
             .bind(my_id)
             .execute(&pool)
             .await
             .unwrap();
     } else {
-        // Owwnership check is required.
+        // Ownership check is required.
         sqlx::query("SELECT owner FROM meta WHERE owner == $1")
             .bind(&my_id)
             .fetch_one(&pool)
