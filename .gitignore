@@ -1,4 +1,5 @@
 /target
+/credentials
 
 # for SQLite
 *.sl3

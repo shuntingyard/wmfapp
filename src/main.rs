@@ -28,7 +28,17 @@ async fn do_work_interval(
     // We can't get away [400 Bad Request] with null length &str as next_token so:
 
     // 1) let'100repare common query parms.
-    let field_array = [UserField::Id, UserField::Username, UserField::Name];
+    let field_array = [
+        UserField::Id,
+        UserField::Username,
+        UserField::Name,
+        UserField::Verified,
+        //UserField::Location,
+        UserField::CreatedAt,
+        //UserField::Description,
+        //UserField::PublicMetrics,
+        //UserField::ProfileImageUrl,
+    ];
     let max = 1000;
 
     // 2)   code separate queries, depending on presence of pagination token
@@ -97,10 +107,16 @@ async fn do_work_interval(
 
         for follower in my_followers {
             // persistence (SQLite)
+            println!(
+                "{:20} {:?} {}",
+                follower.username,
+                follower.verified,
+                follower.created_at.unwrap()
+            );
+
             let id_string = follower.id.as_u64().to_string();
             let user_handle = follower.username;
             let user_name = follower.name;
-            //println!("{follower:?}");
 
             let is_new = sqlx::query(
                 "
@@ -116,11 +132,13 @@ async fn do_work_interval(
 
             if is_new {
                 sqlx::query(
-                    "INSERT INTO follow (   id,
-                                            first_seen,
-                                            last_seen,
-                                            last_handle_seen,
-                                            last_name_seen)
+                    "INSERT INTO follow (
+                        id,
+                        first_seen,
+                        last_seen,
+                        last_handle_seen,
+                        last_name_seen
+                    )
                     VALUES ($1, DATETIME('now'), DATETIME('now'), $2, $3)
                     ",
                 )
@@ -133,9 +151,10 @@ async fn do_work_interval(
             } else {
                 sqlx::query(
                     "
-                    UPDATE follow SET   last_seen = DATETIME('now'),
-                                        last_handle_seen = $2,
-                                        last_name_seen = $3
+                    UPDATE follow SET
+                        last_seen = DATETIME('now'),
+                        last_handle_seen = $2,
+                        last_name_seen = $3
                     WHERE id == $1
                     AND last_seen >= (SELECT last_start FROM meta)
                     ",
@@ -178,9 +197,10 @@ const DB_URL: &str = "sqlite://db.sl3";
 #[tokio::main]
 async fn main() {
     // Get authorization:
-    let creds =
-        serde_json::from_str::<Oauth1Fields>(include_str!("../../ferristw2/Oauth1UsrCtxLeft.json"))
-            .expect("Oauth1 token d3s3r1al1Ze tr0ubl3");
+    let creds = serde_json::from_str::<Oauth1Fields>(include_str!(
+        "../credentials/Oauth1WmfLeft.json"
+    ))
+    .expect("Oauth1 token d3s3r1al1Ze tr0ubl3");
 
     let auth = Oauth1aToken::new(
         creds.consumer_key,
@@ -326,6 +346,7 @@ async fn main() {
                             Possible solution using the `thiserror` crate with '?-operator' and `tokio`?
                         */
                         warn!("ERROR: {e}");
+                        eprintln!("ERROR: {e:?}");
                     } else {
                         //
                         // Manage next_token, be it empty or not.

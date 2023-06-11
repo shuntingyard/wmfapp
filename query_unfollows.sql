@@ -12,9 +12,11 @@ SELECT
   ||
   '   https://twitter.com/i/user/'
   ||
-  FORMAT('%-23s', id),
-  last_name_seen,
+  FORMAT('%-23s', id)
+  ,
   last_handle_seen
+  --,
+  --last_name_seen
 FROM
   follow
 WHERE
