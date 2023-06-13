@@ -1,7 +1,11 @@
+use std::{env, fs, path::PathBuf};
+
 use serde::Deserialize;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite, SqlitePool};
+
 #[cfg(target_family = "windows")]
 use tokio::signal;
+
 #[cfg(target_family = "unix")]
 use tokio::signal::{
     self,
@@ -16,8 +20,8 @@ use twitter_v2::{authorization::Oauth1aToken, query::UserField, TwitterApi};
 struct Oauth1Fields {
     pub consumer_key: String,
     consumer_secret: String,
-    token: String,
-    secret: String,
+    oauth_token: String,
+    oauth_token_secret: String,
 }
 
 async fn do_work_interval(
@@ -195,16 +199,17 @@ const DB_URL: &str = "sqlite://db.sl3";
 
 #[tokio::main]
 async fn main() {
-    // Get authorization:
+    // Get authorization from token file:
+    let credfile: PathBuf = env::args().nth(1).expect("Arg1: Oauth1 creds json").into();
+    let credfile = fs::read_to_string(credfile).unwrap();
     let creds =
-        serde_json::from_str::<Oauth1Fields>(include_str!("../credentials/Oauth1WmfLeft.json"))
-            .expect("Oauth1 token d3s3r1al1Ze tr0ubl3");
+        serde_json::from_str::<Oauth1Fields>(&credfile).expect("Oauth1 token d3s3r1al1Ze tr0ubl3");
 
     let auth = Oauth1aToken::new(
         creds.consumer_key,
         creds.consumer_secret,
-        creds.token,
-        creds.secret,
+        creds.oauth_token,
+        creds.oauth_token_secret,
     );
 
     // Retrieve Twitter user id for checks.
