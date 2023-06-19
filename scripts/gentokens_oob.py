@@ -1,4 +1,4 @@
-""" Generate access tokens out-of-band. That is by requesting a PIN known to the user.
+""" Generate access tokens out-of-band; that is by requesting a PIN known to the user.
 """
 import json
 from sys import stderr, stdin
@@ -9,7 +9,8 @@ from requests_oauthlib import OAuth1Session
 
 def post_request_token_oob(consumer_key: str, consumer_secret: str) -> str:
     """
-    1) The value for oauth_callback must be set to 'oob' during the POST oauth/request_token call.
+    1) The value for oauth_callback must be set to 'oob' during the
+       POST oauth/request_token call.
     """
     oauth1 = OAuth1Session(consumer_key, consumer_secret, callback_uri="oob")
 
@@ -46,8 +47,8 @@ def post_acess_token(
     verifier: str,
 ) -> Dict:
     """
-    3) Application uses the PIN number as the oauth_verifier in the POST oauth/access_token
-    to obtain an access_token.
+    3) Application uses PIN number as the oauth_verifier in POST oauth/access_token
+       to obtain an access_token.
     """
 
     oauth1 = OAuth1Session(
