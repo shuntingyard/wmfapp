@@ -1,4 +1,4 @@
-""" Generate access tokens out-of-band; that is by requesting a PIN known to the user.
+""" Generate access tokens out-of-band: that is by requesting a PIN known to the user.
 """
 import json
 from sys import stderr, stdin
