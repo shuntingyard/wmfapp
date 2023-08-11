@@ -1,0 +1,12 @@
+{
+  "connections": [
+    {
+      "name": "sqlite3-project",
+      "adapter": "sqlite3",
+      "filename": "./db.sl3",
+      "projectPaths": [
+        "~/src/twitter/ferris_follies"
+      ]
+    }
+  ]
+}
