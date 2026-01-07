@@ -5,6 +5,8 @@ quality, summary activity) with yours (or someone else's) Twitter followers.
 
 ## TODO
 
+- [ ] Never tested again since 2023. Now GENERATED CREDENTIALS ARE ALL INVALID.
+This absolutely is the first thing to look into and FIX!
 - [x] Improve usability of script for credentials generation.
 - [ ] Make logging work.
 - [ ] Refactor persistence parts.
